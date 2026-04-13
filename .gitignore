@@ -1,0 +1,32 @@
+venv/
+.venv/
+env/
+.env
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+
+# --- Node Modules ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Environment Variables (CRITICAL for security) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Python Caching ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- FAISS Vector Database (large binary files, do not commit) ---
+# Backend/faiss_db/
