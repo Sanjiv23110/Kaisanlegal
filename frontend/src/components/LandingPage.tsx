@@ -2,6 +2,7 @@ import { Scale, BookOpen, FileSearch, MessageCircle, Users, ArrowRight, CheckCir
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { useNavigate } from "react-router-dom";
+import PricingCards from "./PricingCards";
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -156,6 +157,11 @@ export function LandingPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Pricing Section */}
+      <div className="py-16">
+        <PricingCards />
       </div>
 
       {/* CTA Section */}

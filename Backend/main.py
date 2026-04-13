@@ -16,6 +16,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
+from rate_limiter import rate_limiter
 
 load_dotenv()
 
@@ -34,11 +35,19 @@ limiter = Limiter(key_func=get_remote_address)
 # ── Legal RAG ─────────────────────────────────────────────────────────────────
 # Loaded once at startup, shared across all requests
 from app import LegalAIApp
+from database import init_db
 legal_ai: LegalAIApp | None = None
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     """Initialize heavy resources (FAISS index + embedding model) once on startup."""
+    # Initialize database schema
+    try:
+        init_db()
+        print("[Startup] Database schema initialized.")
+    except Exception as e:
+        print(f"[Startup] Database initialization warning: {e}")
+    
     # Run simple schema migrations
     try:
         conn = sqlite3.connect("local_datbase.db", timeout=15.0)
@@ -205,6 +214,17 @@ async def process_document(request: Request, file: UploadFile = File(...), curre
     try:
         raw_text = load_document(content, file.filename)
         summary = analyze_document(raw_text)
+        
+        # Increment documents processed counter
+        try:
+            conn = get_db()
+            user = conn.execute("SELECT user_id FROM user_profile WHERE email = ?", (current_user,)).fetchone()
+            conn.close()
+            if user:
+                rate_limiter.increment_documents_processed(user[0])
+        except Exception as e:
+            logger.warning(f"Could not increment documents processed: {e}")
+        
         return summary
     except Exception as e:
         logger.exception("Document processing failed")
@@ -243,6 +263,16 @@ async def analyze_legal(request: Request, file: UploadFile = File(...), current_
     except Exception as e:
         logger.exception("Legal compliance check failed")
         raise HTTPException(status_code=500, detail="An internal error occurred during compliance check.")
+
+    # Increment documents processed counter
+    try:
+        conn = get_db()
+        user = conn.execute("SELECT user_id FROM user_profile WHERE email = ?", (current_user,)).fetchone()
+        conn.close()
+        if user:
+            rate_limiter.increment_documents_processed(user[0])
+    except Exception as e:
+        logger.warning(f"Could not increment documents processed: {e}")
 
     return {
         "document_analysis": document_analysis,
@@ -294,6 +324,258 @@ def legal_query(request: Request, req: LegalQueryRequest, current_user: str = De
     except Exception as e:
         logger.exception("Legal query processing failed")
         raise HTTPException(status_code=500, detail="An internal error occurred processing legal query.")
+
+# ────────────────────────────────────────────────────────────────────────────────
+# SUBSCRIPTION AND RATE LIMITING ENDPOINTS
+# ────────────────────────────────────────────────────────────────────────────────
+
+def get_user_id_from_token(token: str = Depends(oauth2_scheme)) -> int:
+    """Extract user_id from JWT token."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("user_id")
+        if user_id is None:
+            raise credentials_exception
+        return user_id
+    except JWTError:
+        raise credentials_exception
+
+class SubscriptionPlan(BaseModel):
+    name: str
+    monthly_limit: Optional[int]
+    price: float
+    features: List[str]
+
+class UserTierInfo(BaseModel):
+    tier: str
+    documents_uploaded: int
+    monthly_limit: Optional[int]
+    remaining: Optional[int]
+    documents_processed: int = 0
+
+class UploadCheckResponse(BaseModel):
+    allowed: bool
+    remaining: int
+    tier: str
+    message: str
+
+class PaymentRequest(BaseModel):
+    plan_name: str
+    card_number: str = Field(..., description="Simulated - any 16 digit number")
+    card_expiry: str = Field(..., description="Format: MM/YY")
+    card_cvv: str = Field(..., description="3-4 digits")
+
+class PaymentResponse(BaseModel):
+    success: bool
+    transaction_id: str
+    message: str
+    new_tier: Optional[str] = None
+
+@app.get("/api/subscription/plans", response_model=List[SubscriptionPlan])
+def get_subscription_plans():
+    """Get all available subscription plans."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, monthly_limit, price, features FROM subscription_plans ORDER BY price")
+        plans = cursor.fetchall()
+        
+        result = []
+        for plan in plans:
+            features = plan[3].split(',') if plan[3] else []
+            result.append({
+                'name': plan[0],
+                'monthly_limit': plan[1],
+                'price': plan[2],
+                'features': features
+            })
+        return result
+    finally:
+        conn.close()
+
+@app.get("/api/user/tier", response_model=UserTierInfo)
+def get_user_tier(user_id: int = Depends(get_user_id_from_token)):
+    """Get current user's subscription tier and usage information."""
+    tier_info = rate_limiter.get_user_tier_info(user_id)
+    
+    if not tier_info:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    remaining = tier_info['remaining']
+    if remaining == float('inf'):
+        remaining = None
+    
+    return {
+        'tier': tier_info['tier'],
+        'documents_uploaded': tier_info['documents_uploaded'],
+        'monthly_limit': tier_info['monthly_limit'] if tier_info['monthly_limit'] != float('inf') else None,
+        'remaining': remaining,
+        'documents_processed': tier_info.get('documents_processed', 0)
+    }
+
+@app.get("/api/upload/check", response_model=UploadCheckResponse)
+def check_upload_limit(user_id: int = Depends(get_user_id_from_token)):
+    """Check if user can upload a document."""
+    limit_check = rate_limiter.check_upload_limit(user_id)
+    
+    return {
+        'allowed': limit_check['allowed'],
+        'remaining': limit_check['remaining'] if limit_check['remaining'] != float('inf') else 999,
+        'tier': limit_check['tier'],
+        'message': limit_check['message']
+    }
+
+@app.post("/api/upload/document-with-limit")
+@limiter.limit("30/minute")
+async def upload_document_with_limit(
+    request: Request,
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_user_id_from_token)
+):
+    """Upload document with rate limiting enforcement."""
+    
+    # Check if user can upload
+    limit_check = rate_limiter.check_upload_limit(user_id)
+    
+    if not limit_check['allowed']:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=limit_check['message']
+        )
+    
+    # Process file
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large. Limit is 10MB.")
+    
+    kind = filetype.guess(content)
+    mime = kind.mime if kind else "text/plain"
+    if mime not in ALLOWED_MIMETYPES:
+        if not file.filename.endswith(".txt"):
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Invalid file type.")
+    
+    try:
+        raw_text = load_document(content, file.filename)
+        # Increment the counter after successful upload
+        rate_limiter.increment_upload_count(user_id)
+        rate_limiter.increment_documents_processed(user_id)
+        
+        # Get updated tier info
+        tier_info = rate_limiter.get_user_tier_info(user_id)
+        
+        return {
+            'success': True,
+            'message': 'Document uploaded successfully',
+            'remaining': tier_info['remaining'] if tier_info['remaining'] != float('inf') else 999,
+            'filename': file.filename
+        }
+    except Exception as e:
+        logger.exception("Document upload failed")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+@app.post("/api/subscription/checkout", response_model=PaymentResponse)
+def process_payment(payment: PaymentRequest, user_id: int = Depends(get_user_id_from_token)):
+    """
+    Simulate payment processing and upgrade subscription tier.
+    For demo purposes only - validates card format but doesn't charge.
+    """
+    
+    # Validate card format (basic validation for demo)
+    if not payment.card_number or len(payment.card_number) != 16 or not payment.card_number.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid card number")
+    
+    if not payment.card_expiry or len(payment.card_expiry.split('/')) != 2:
+        raise HTTPException(status_code=400, detail="Invalid expiry format. Use MM/YY")
+    
+    if not payment.card_cvv or not (3 <= len(payment.card_cvv) <= 4 and payment.card_cvv.isdigit()):
+        raise HTTPException(status_code=400, detail="Invalid CVV")
+    
+    if payment.plan_name not in ['free', 'premium']:
+        raise HTTPException(status_code=400, detail="Invalid plan name")
+    
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        
+        # Get plan price
+        cursor.execute("SELECT price FROM subscription_plans WHERE name = ?", (payment.plan_name,))
+        plan = cursor.fetchone()
+        
+        if not plan:
+            raise HTTPException(status_code=400, detail="Plan not found")
+        
+        price = plan[0]
+        
+        # Simulate successful payment
+        transaction_id = f"SIM_{datetime.now().strftime('%Y%m%d%H%M%S')}_{user_id}"
+        
+        # Update user tier
+        cursor.execute("""
+            UPDATE user_profile
+            SET subscription_tier = ?, documents_uploaded_this_month = 0, last_reset_date = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        """, (payment.plan_name, user_id))
+        
+        # Record transaction
+        cursor.execute("""
+            INSERT INTO subscription_history (user_id, plan_name, amount, status)
+            VALUES (?, ?, ?, 'completed')
+        """, (user_id, payment.plan_name, price))
+        
+        conn.commit()
+        
+        message = f"Successfully upgraded to {payment.plan_name.upper()} plan"
+        if payment.plan_name == 'free':
+            message = "Downgraded to free plan"
+        
+        return {
+            'success': True,
+            'transaction_id': transaction_id,
+            'message': message,
+            'new_tier': payment.plan_name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Payment processing failed")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Payment processing failed")
+    finally:
+        conn.close()
+
+@app.get("/api/subscription/history")
+def get_subscription_history(user_id: int = Depends(get_user_id_from_token)):
+    """Get user's subscription history."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT transaction_id, plan_name, amount, status, transaction_date
+            FROM subscription_history
+            WHERE user_id = ?
+            ORDER BY transaction_date DESC
+        """, (user_id,))
+        
+        transactions = cursor.fetchall()
+        
+        result = []
+        for tx in transactions:
+            result.append({
+                'transaction_id': tx[0],
+                'plan_name': tx[1],
+                'amount': tx[2],
+                'status': tx[3],
+                'transaction_date': tx[4]
+            })
+        
+        return {'transactions': result}
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     import uvicorn

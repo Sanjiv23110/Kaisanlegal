@@ -115,5 +115,75 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query, documentContext }),
     });
+  },
+
+  async getSubscriptionPlans() {
+    return fetchWithAuth('/api/subscription/plans', {
+      method: 'GET',
+    });
+  },
+
+  async getUserTier() {
+    return fetchWithAuth('/api/user/tier', {
+      method: 'GET',
+    });
+  },
+
+  async checkUploadLimit() {
+    return fetchWithAuth('/api/upload/check', {
+      method: 'GET',
+    });
+  },
+
+  async uploadDocumentWithLimit(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = getAuthToken();
+    const headers = new Headers();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const response = await fetch('/api/upload/document-with-limit', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let errorMsg = 'An error occurred';
+      try {
+        const errorData = await response.json();
+        if (Array.isArray(errorData.detail)) {
+          errorMsg = errorData.detail.map((err: any) => err.msg).join(', ');
+        } else {
+          errorMsg = errorData.detail || errorMsg;
+        }
+      } catch {
+        errorMsg = response.statusText;
+      }
+      throw new APIError(response.status, errorMsg as string);
+    }
+    
+    return response.json();
+  },
+
+  async processPayment(planName: string, cardNumber: string, cardExpiry: string, cardCvv: string) {
+    return fetchWithAuth('/api/subscription/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        plan_name: planName,
+        card_number: cardNumber,
+        card_expiry: cardExpiry,
+        card_cvv: cardCvv,
+      }),
+    });
+  },
+
+  async getSubscriptionHistory() {
+    return fetchWithAuth('/api/subscription/history', {
+      method: 'GET',
+    });
   }
 };
