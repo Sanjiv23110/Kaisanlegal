@@ -7,7 +7,7 @@ def safe_add_column(conn, table_name, column_name, column_def):
     try:
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
         conn.commit()
-        print(f"[Migration] ✓ Added {column_name} column to {table_name}")
+        print(f"[Migration] OK: Added {column_name} column to {table_name}")
         return True
     except sqlite3.OperationalError as e:
         if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
@@ -44,7 +44,7 @@ def init_db():
             )
         """)
         conn.commit()
-        print("[Init] ✓ user_profile table created or verified")
+        print("[Init] OK: user_profile table created or verified")
     except Exception as e:
         print(f"[Init] Error creating user_profile table: {e}")
 
@@ -55,6 +55,7 @@ def init_db():
     safe_add_column(conn, 'user_profile', 'documents_uploaded_this_month', "INTEGER DEFAULT 0")
     safe_add_column(conn, 'user_profile', 'documents_processed', "INTEGER DEFAULT 0")
     safe_add_column(conn, 'user_profile', 'last_reset_date', "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    safe_add_column(conn, 'user_profile', 'cycle_start', "TIMESTAMP DEFAULT '2024-01-01 00:00:00'")
 
     # Create subscription plans table
     try:
@@ -69,7 +70,7 @@ def init_db():
             )
         """)
         conn.commit()
-        print("[Init] ✓ subscription_plans table created or verified")
+        print("[Init] OK: subscription_plans table created or verified")
     except Exception as e:
         print(f"[Init] Error creating subscription_plans table: {e}")
 
@@ -87,9 +88,28 @@ def init_db():
             )
         """)
         conn.commit()
-        print("[Init] ✓ subscription_history table created or verified")
+        print("[Init] OK: subscription_history table created or verified")
     except Exception as e:
         print(f"[Init] Error creating subscription_history table: {e}")
+
+    # Create notifications table
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                type TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL,
+                is_dismissed INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES user_profile(user_id)
+            )
+        """)
+        conn.commit()
+        print("[Init] OK: notifications table created or verified")
+    except Exception as e:
+        print(f"[Init] Error creating notifications table: {e}")
 
     # Insert default plans if not exist
     try:
@@ -102,14 +122,14 @@ def init_db():
                 ('premium', NULL, 9.99, 'Unlimited document uploads,Priority support,Advanced analytics,Faster processing')
             """)
             conn.commit()
-            print("[Init] ✓ Inserted default subscription plans")
+            print("[Init] OK: Inserted default subscription plans")
         else:
             print(f"[Init] Subscription plans already exist ({count} plans)")
     except Exception as e:
         print(f"[Init] Error with subscription plans: {e}")
 
     conn.close()
-    print("[Init] ✓ Database initialization completed successfully")
+    print("[Init] OK: Database initialization completed successfully")
     return True
 
 if __name__ == "__main__":

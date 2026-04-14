@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LegalProvider } from "./context/LegalContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import { Navigation } from "./components/Navigation";
 import { LandingPage } from "./components/LandingPage";
 import { RoadmapsHome } from "./components/RoadmapsHome";
@@ -111,9 +112,11 @@ export default function App() {
   return (
     <AuthProvider>
       <LegalProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        <NotificationProvider>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </NotificationProvider>
       </LegalProvider>
     </AuthProvider>
   );

@@ -1,6 +1,7 @@
 import { Home, FileSearch, MessageCircle, Users, User, Scale, Map } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { NotificationBell } from "./NotificationBell";
 
 export function Navigation() {
   const { isLoggedIn, logout } = useAuth();
@@ -60,16 +61,19 @@ export function Navigation() {
 
             {/* Login / Logout Button */}
             {isLoggedIn ? (
-              <button
-                onClick={() => {
-                  logout();
-                  navigate('/');
-                }}
-                className="px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
-                title="Sign Out"
-              >
-                Logout
-              </button>
+              <div className="flex items-center gap-2">
+                <NotificationBell />
+                <button
+                  onClick={() => {
+                    logout();
+                    navigate('/');
+                  }}
+                  className="px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+                  title="Sign Out"
+                >
+                  Logout
+                </button>
+              </div>
             ) : (
               <Link
                 to="/login"

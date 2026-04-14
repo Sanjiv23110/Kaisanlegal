@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, FileText, Camera, AlertTriangle, CheckCircle, X, Eye, MessageCircle } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -7,6 +7,8 @@ import { Alert, AlertDescription } from "./ui/alert";
 import { api } from "../lib/api";
 import { useLegal } from "../context/LegalContext";
 import { useNavigate } from "react-router-dom";
+import { UpgradeBanner } from "./UpgradeBanner";
+import { useNotifications } from "../context/NotificationContext";
 
 interface DocumentAnalysis {
   documentType: string;
@@ -20,12 +22,25 @@ interface DocumentAnalysis {
 export function DocumentScanner() {
   const { setScannedDoc } = useLegal();
   const navigate = useNavigate();
+  const { refresh: refreshNotifications } = useNotifications();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<DocumentAnalysis | null>(null);
   const [compliance, setCompliance] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [limitBlocked, setLimitBlocked] = useState(false);
+  const [limitMessage, setLimitMessage] = useState("");
+
+  // Check upload limit on mount
+  useEffect(() => {
+    api.checkUploadLimit().then(data => {
+      if (!data.allowed) {
+        setLimitBlocked(true);
+        setLimitMessage(data.message);
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);
@@ -45,20 +60,37 @@ export function DocumentScanner() {
 
   const analyzeDocument = async () => {
     if (!selectedFile) return;
-    
+
+    // Re-check limit right before analysis
+    try {
+      const limitData = await api.checkUploadLimit();
+      if (!limitData.allowed) {
+        setLimitBlocked(true);
+        setLimitMessage(limitData.message);
+        setError("Upload limit reached. Please upgrade to Premium.");
+        return;
+      }
+    } catch {
+      // proceed; backend will reject if needed
+    }
+
     setIsAnalyzing(true);
     setError(null);
-    
+
     try {
       const result = await api.analyzeLegalDocument(selectedFile);
       setAnalysis(result.document_analysis);
       setCompliance(result.legal_compliance);
-      // Store structured context in LegalContext — only activated when user explicitly clicks the button
       setScannedDoc({
         fileName: selectedFile.name,
         summary: result.document_analysis.summary,
         redFlags: result.document_analysis.redFlags,
         complianceReport: result.legal_compliance.compliance_report,
+      });
+      // Refresh notifications & check new limit state
+      refreshNotifications();
+      api.checkUploadLimit().then(d => {
+        if (!d.allowed) { setLimitBlocked(true); setLimitMessage(d.message); }
       });
     } catch (err: any) {
       setError(err.message || "Failed to analyze document. Please ensure it's a valid clear document or PDF.");
@@ -105,6 +137,9 @@ export function DocumentScanner() {
 
   return (
     <div className="pt-20 min-h-screen bg-background pb-12">
+      {/* Upgrade banner — shown when limit reached */}
+      {limitBlocked && <UpgradeBanner message={limitMessage || undefined} />}
+
       {/* Header Section */}
       <div className="bg-gradient-to-r from-green-600 to-teal-700 text-white">
         <div className="max-w-7xl mx-auto px-6 py-12">
@@ -182,7 +217,7 @@ export function DocumentScanner() {
 
             <Button 
               onClick={analyzeDocument} 
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || limitBlocked}
               className="w-full h-12 text-base"
             >
               {isAnalyzing ? (

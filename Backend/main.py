@@ -185,13 +185,75 @@ def get_me(current_user: str = Depends(get_current_user)):
         db_user = conn.execute("SELECT email, name FROM user_profile WHERE email = ?", (current_user,)).fetchone()
     finally:
         conn.close()
-        
+
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     return {"email": db_user["email"], "name": db_user["name"]}
-    
-MAX_FILE_SIZE = 10 * 1024 * 1024 # 10 MB
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(None, min_length=8)
+    confirm_password: Optional[str] = None
+
+@app.put("/api/me")
+def update_me(body: UpdateProfileRequest, current_user: str = Depends(get_current_user)):
+    """Update the authenticated user's name and/or password."""
+    conn = get_db()
+    try:
+        db_user = conn.execute(
+            "SELECT email, name, password_hash FROM user_profile WHERE email = ?",
+            (current_user,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    updates: Dict[str, Any] = {}
+
+    # Name update
+    if body.name is not None:
+        stripped = body.name.strip()
+        if not stripped:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+        updates["name"] = stripped
+
+    # Password update
+    if body.new_password is not None:
+        if not body.current_password:
+            raise HTTPException(status_code=400, detail="Current password is required to set a new password")
+        if not bcrypt.checkpw(body.current_password.encode('utf-8'), db_user["password_hash"].encode('utf-8')):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if body.new_password != body.confirm_password:
+            raise HTTPException(status_code=400, detail="New password and confirmation do not match")
+        updates["password_hash"] = bcrypt.hashpw(
+            body.new_password.encode('utf-8'), bcrypt.gensalt()
+        ).decode('utf-8')
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [current_user]
+    conn = get_db()
+    try:
+        conn.execute(f"UPDATE user_profile SET {set_clause} WHERE email = ?", values)
+        conn.commit()
+        updated = conn.execute(
+            "SELECT email, name FROM user_profile WHERE email = ?", (current_user,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    return {"email": updated["email"], "name": updated["name"], "message": "Profile updated successfully"}
+
+
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIMETYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -271,8 +333,9 @@ async def analyze_legal(request: Request, file: UploadFile = File(...), current_
         conn.close()
         if user:
             rate_limiter.increment_documents_processed(user[0])
+            rate_limiter.increment_upload_count(user[0])
     except Exception as e:
-        logger.warning(f"Could not increment documents processed: {e}")
+        logger.warning(f"Could not increment counters: {e}")
 
     return {
         "document_analysis": document_analysis,
@@ -576,6 +639,70 @@ def get_subscription_history(user_id: int = Depends(get_user_id_from_token)):
         return {'transactions': result}
     finally:
         conn.close()
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+@app.get("/api/user/notifications")
+def get_notifications(user_id: int = Depends(get_user_id_from_token)):
+    """Get all non-dismissed notifications for the current user."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT notification_id, type, title, message, is_dismissed, created_at
+            FROM notifications
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            (user_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "notifications": [
+            {
+                "id": r["notification_id"],
+                "type": r["type"],
+                "title": r["title"],
+                "message": r["message"],
+                "is_dismissed": bool(r["is_dismissed"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+    }
+
+@app.post("/api/user/notifications/{notification_id}/dismiss")
+def dismiss_notification(
+    notification_id: int,
+    user_id: int = Depends(get_user_id_from_token)
+):
+    """Dismiss a notification by ID (must belong to the current user)."""
+    conn = get_db()
+    try:
+        result = conn.execute(
+            "UPDATE notifications SET is_dismissed = 1 WHERE notification_id = ? AND user_id = ?",
+            (notification_id, user_id)
+        )
+        conn.commit()
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Notification not found")
+    finally:
+        conn.close()
+    return {"success": True}
+
+
+# ── Upload Cycle ───────────────────────────────────────────────────────────────
+
+@app.get("/api/user/upload-cycle")
+def get_upload_cycle(user_id: int = Depends(get_user_id_from_token)):
+    """Return the current 14-day upload cycle timing for the user."""
+    cycle = rate_limiter.get_upload_cycle(user_id)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return cycle
 
 if __name__ == "__main__":
     import uvicorn

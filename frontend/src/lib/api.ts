@@ -185,5 +185,35 @@ export const api = {
     return fetchWithAuth('/api/subscription/history', {
       method: 'GET',
     });
-  }
+  },
+
+  async updateProfile(data: {
+    name?: string;
+    current_password?: string;
+    new_password?: string;
+    confirm_password?: string;
+  }) {
+    return fetchWithAuth('/api/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getNotifications() {
+    return fetchWithAuth('/api/user/notifications', {
+      method: 'GET',
+    });
+  },
+
+  async dismissNotification(notificationId: number) {
+    return fetchWithAuth(`/api/user/notifications/${notificationId}/dismiss`, {
+      method: 'POST',
+    });
+  },
+
+  async getUploadCycle() {
+    return fetchWithAuth('/api/user/upload-cycle', {
+      method: 'GET',
+    });
+  },
 };
