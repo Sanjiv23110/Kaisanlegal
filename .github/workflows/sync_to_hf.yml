@@ -1,0 +1,38 @@
+name: Sync to Hugging Face hub
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Remove GitHub's git history to prevent pushing historical large blobs
+          rm -rf .git
+          
+          # Initialize a fresh git repo specifically for Hugging Face
+          git init
+          git config --global init.defaultBranch main
+          git config --global user.name "actions-user"
+          git config --global user.email "actions@github.com"
+          
+          # Setup Git LFS for the FAISS index file
+          git lfs install
+          git lfs track "*.index"
+          git add .gitattributes
+          
+          # Add all files and commit
+          git add .
+          git commit -m "Automated deployment to Hugging Face Spaces"
+          
+          # Force push the clean snapshot to Hugging Face
+          git push -f https://sanjiv2311:$HF_TOKEN@huggingface.co/spaces/sanjiv2311/kaisanlegal main:main
