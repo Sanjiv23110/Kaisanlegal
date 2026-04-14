@@ -24,7 +24,7 @@ export function LandingPage() {
     },
     {
       icon: MessageCircle,
-      title: "AI Lawyer Chatbot",
+      title: "AI Legal Assistant",
       description: "Chat with our intelligent AI assistant 24/7. Ask legal questions, get guidance on your specific situation, and receive personalized advice based on your needs.",
       color: "text-purple-600",
       bgColor: "bg-purple-50"
