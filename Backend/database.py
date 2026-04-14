@@ -1,4 +1,5 @@
 import sqlite3
+import os
 from datetime import datetime
 
 def safe_add_column(conn, table_name, column_name, column_def):
@@ -23,7 +24,8 @@ def safe_add_column(conn, table_name, column_name, column_def):
 def init_db():
     """Initialize database with all required tables and columns."""
     try:
-        conn = sqlite3.connect("local_datbase.db", timeout=15.0)
+        db_path = os.getenv("DB_PATH", "local_datbase.db")
+        conn = sqlite3.connect(db_path, timeout=15.0)
         print("[Init] Database connection established")
     except Exception as e:
         print(f"[Init] CRITICAL: Cannot connect to database: {e}")

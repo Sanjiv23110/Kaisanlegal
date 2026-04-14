@@ -8,13 +8,7 @@ export function LandingPage() {
   const navigate = useNavigate();
 
   const features = [
-    {
-      icon: BookOpen,
-      title: "Legal Roadmaps",
-      description: "Navigate complex legal processes with step-by-step guides. From starting a business to resolving property disputes, we break down each action into clear, manageable steps.",
-      color: "text-blue-600",
-      bgColor: "bg-blue-50"
-    },
+
     {
       icon: FileSearch,
       title: "Document Scanner",
@@ -86,7 +80,7 @@ export function LandingPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {features.map((feature, index) => {
               const Icon = feature.icon;
               return (
@@ -169,14 +163,14 @@ export function LandingPage() {
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">Ready to Get Started?</h2>
           <p className="text-lg text-blue-100 mb-8">
-            Explore our legal roadmaps, scan your documents, or chat with our AI assistant
+            Scan your documents or chat with our AI assistant for immediate legal guidance
           </p>
           <Button 
             size="lg" 
-            onClick={() => navigate('/roadmaps')}
+            onClick={() => navigate('/chatbot')}
             className="bg-white text-blue-700 hover:bg-blue-50 text-lg px-8 py-6 h-auto font-semibold"
           >
-            Explore Legal Roadmaps
+            Try AI Legal Assistant
             <ArrowRight className="ml-2" size={20} />
           </Button>
         </div>

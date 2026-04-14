@@ -206,10 +206,43 @@ function EditProfileDialog({
   );
 }
 
-// ─── Main Profile Page ─────────────────────────────────────────────────────────
+// ─── Privacy & Security Dialog ─────────────────────────────────────────────────
+function PrivacyDialog({
+  open, onOpenChange,
+}: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Privacy & Security</DialogTitle>
+          <DialogDescription>Our commitment to your data privacy and compliance.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div>
+            <h4 className="font-semibold text-sm mb-1 text-slate-800">Data Privacy</h4>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Compliant with the Digital Personal Data Protection Act (DPDPA) 2023. We practice data minimization.
+            </p>
+          </div>
+          <Separator />
+          <div>
+            <h4 className="font-semibold text-sm mb-1 text-slate-800">Processing Logic</h4>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Legal documents are processed in-memory for analysis and are never stored on our servers. Your data stays in your browser's local storage.
+            </p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function Profile() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [tierInfo, setTierInfo] = useState<TierInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const { user, refreshUser, logout } = useAuth();
@@ -245,7 +278,7 @@ export function Profile() {
   }, [fetchTierInfo]);
 
   const handleLogout = () => { logout(); navigate("/"); };
-  const handleNavigateToPricing = () => navigate("/roadmap");
+  const handleNavigateToPricing = () => navigate("/");
 
   const initials = displayName.substring(0, 2).toUpperCase();
 
@@ -293,11 +326,11 @@ export function Profile() {
                   <Button variant="ghost" className="w-full justify-start" size="sm">
                     <Bell className="h-4 w-4 mr-3" /> Notifications
                   </Button>
-                  <Button variant="ghost" className="w-full justify-start" size="sm">
+                  <Button 
+                    variant="ghost" className="w-full justify-start" size="sm"
+                    onClick={() => { setSettingsOpen(false); setPrivacyOpen(true); }}
+                  >
                     <Shield className="h-4 w-4 mr-3" /> Privacy &amp; Security
-                  </Button>
-                  <Button variant="ghost" className="w-full justify-start" size="sm">
-                    <HelpCircle className="h-4 w-4 mr-3" /> Help &amp; Support
                   </Button>
                   <Separator className="my-2" />
                   <Button
@@ -439,6 +472,9 @@ export function Profile() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Privacy Dialog */}
+      <PrivacyDialog open={privacyOpen} onOpenChange={setPrivacyOpen} />
 
       {/* Edit Profile Dialog */}
       <EditProfileDialog

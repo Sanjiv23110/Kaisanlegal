@@ -10,7 +10,6 @@ export function Navigation() {
 
   const navItems = [
     { id: '/', icon: Home, label: 'Home' },
-    { id: '/roadmaps', icon: Map, label: 'Roadmaps' },
     { id: '/scanner', icon: FileSearch, label: 'Scanner' },
     { id: '/chatbot', icon: MessageCircle, label: 'AI Legal Assistant' },
     { id: '/community', icon: Users, label: 'Community' },
