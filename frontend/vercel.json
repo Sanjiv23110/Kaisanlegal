@@ -1,5 +1,9 @@
 {
+  "outputDirectory": "build",
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://sanjiv2311-kaisanlegal.hf.space/api/$1" },
+    { "source": "/analyze", "destination": "https://sanjiv2311-kaisanlegal.hf.space/analyze" },
+    { "source": "/api/analyze-legal", "destination": "https://sanjiv2311-kaisanlegal.hf.space/api/analyze-legal" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
